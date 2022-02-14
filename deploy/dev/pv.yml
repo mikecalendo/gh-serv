@@ -1,0 +1,16 @@
+kind: PersistentVolume
+apiVersion: v1
+metadata:
+  name: repositories
+spec:
+  accessModes:
+    - ReadWriteMany
+  capacity:
+    storage: 20Gi
+  persistentVolumeReclaimPolicy: Retain
+  claimRef:
+    namespace: default
+    name: git-server-storage
+  nfs:
+    server: 10.128.0.15
+    path: "/data"

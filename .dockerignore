@@ -1,0 +1,8 @@
+.git
+.travis.yml
+*Dockerfile*
+node_modules
+tmp
+deploy
+coverage
+scripts

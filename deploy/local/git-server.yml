@@ -1,0 +1,42 @@
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: git-server
+spec:
+  replicas: 3
+  template:
+    metadata:
+      labels:
+        app: git-server
+    spec:
+      securityContext:
+        fsGroup: 2000
+      containers:
+        - name: git-server
+          image: gcr.io/git-server-dev/git-server:latest
+          imagePullPolicy: Always
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+          volumeMounts:
+            - name: storage
+              mountPath: /repositories
+          readinessProbe:
+            httpGet:
+              path: /health-check/
+              port: 8000
+            initialDelaySeconds: 5
+            timeoutSeconds: 1
+            periodSeconds: 20
+          livenessProbe:
+            httpGet:
+              path: /health-check/
+              port: 8000
+            initialDelaySeconds: 15
+            timeoutSeconds: 1
+            periodSeconds: 20
+            failureThreshold: 3
+      volumes:
+        - name: storage
+          persistentVolumeClaim:
+            claimName: git-server-storage

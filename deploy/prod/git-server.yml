@@ -1,0 +1,50 @@
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: git-server
+spec:
+  replicas: 6
+  template:
+    metadata:
+      labels:
+        app: git-server
+    spec:
+      securityContext:
+        fsGroup: 2000
+      containers:
+        - name: git-server
+          image: gcr.io/che-fullstack/git-server:44
+          # imagePullPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+          volumeMounts:
+            - name: storage
+              mountPath: /repositories
+          readinessProbe:
+            httpGet:
+              path: /health-check/
+              port: 8000
+            initialDelaySeconds: 5
+            timeoutSeconds: 1
+            periodSeconds: 20
+          livenessProbe:
+            httpGet:
+              path: /health-check/
+              port: 8000
+            initialDelaySeconds: 15
+            timeoutSeconds: 1
+            periodSeconds: 20
+            failureThreshold: 3
+          env:
+            - name: ADMIN_KEY
+              value: "fe3ue2eik8eecit8meeBeey0aibeex0E"
+            - name: REPO_MANAGER_SECRET
+              value: "uo1ori8Kamameir6fahthae9ringi4zeejooraekax3mie4ciyee3atae2oh"
+          resources:
+            requests:
+              cpu: "1"
+      volumes:
+        - name: storage
+          persistentVolumeClaim:
+            claimName: git-server-storage

@@ -1,0 +1,38 @@
+language: node_js
+node_js:
+  - "8"
+  - "10"
+os:
+  - osx
+  - linux
+services:
+  - docker
+cache:
+  directories:
+    - node_modules
+    - $HOME/google-cloud-sdk
+before_script:
+  - |
+    if [[ "$TRAVIS_OS_NAME" == "linux" && "$TRAVIS_NODE_VERSION" == "8" ]]; then
+      curl -L https://codeclimate.com/downloads/test-reporter/test-reporter-latest-linux-amd64 > ./cc-test-reporter
+      chmod +x ./cc-test-reporter
+      ./cc-test-reporter before-build
+    fi
+after_script:
+  - |
+    if [[ "$TRAVIS_OS_NAME" == "linux" && "$TRAVIS_NODE_VERSION" == "8" ]]; then
+      ./cc-test-reporter after-build --exit-code $TRAVIS_TEST_RESULT
+    fi
+jobs:
+  include:
+    - stage: deploy
+      os: linux
+      node_js: "8"
+      script: ./scripts/deploy-travis.sh
+      if: branch = master
+addons:
+  apt:
+    sources:
+      - ubuntu-toolchain-r-test
+    packages:
+      - libstdc++-4.9-dev

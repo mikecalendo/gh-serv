@@ -1,0 +1,14 @@
+kind: PersistentVolume
+apiVersion: v1
+metadata:
+  name: repositories
+spec:
+  accessModes:
+    - ReadWriteMany
+  capacity:
+    storage: 256Mi
+  claimRef:
+    namespace: default
+    name: git-server-storage
+  hostPath:
+    path: /tmp/repositories

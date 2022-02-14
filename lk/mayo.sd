@@ -1,0 +1,210 @@
+const path = require('path');
+const fs = require('fs');
+const _ = require('lodash');
+const {test, touch, rm} = require('shelljs');
+const util = require('util');
+const readFile = util.promisify(fs.readFile);
+const writeFile = util.promisify(fs.writeFile);
+const auth = require('basic-auth');
+const Git = require('nodegit');
+const crypto = require('crypto');
+const logger = require('winston');
+const {exec, spawn} = require('child_process');
+const execp = util.promisify(exec);
+const process = require('process');
+
+class GitServerError extends Error {
+  constructor(message, code) {
+    super(message);
+    this.code = code;
+  }
+};
+
+async function chain(...args) {
+  return await execp(args.join(' && '), {
+      maxBuffer: 1024 * 1024 * 10,
+    });
+}
+
+function repoPath(gitRoot, repo) {
+  return path.join(gitRoot, repo.slice(0, 2), repo.slice(2, 4), repo.slice(4));
+}
+
+function repoURL(id, host, secure) {
+  const protocol = secure ? 'https' : 'http';
+  return `${protocol}://${host}/git/${id}`;
+}
+
+function isRepo(repoPath) {
+  return test('-d', path.join(repoPath, 'refs'));
+}
+
+function isActive(repoPath, state) {
+  const inactiveLock = path.join(repoPath, 'inactive.lock');
+
+  if (_.isBoolean(state)) {
+    if (state) {
+      rm('-f', inactiveLock);
+    } else {
+      touch(inactiveLock);
+    }
+  }
+
+  return !test('-f', inactiveLock);
+}
+
+async function repoSize(repoPath) {
+  return parseInt((await execp(`du -sk ${repoPath} | cut -f 1`)).stdout, 10);
+}
+
+async function unzipUrl(zipUrl, sourcePath, maxSize) {
+  let sourceZip = `${sourcePath}.zip`;
+
+  try {
+    await chain(
+      `mkdir -p ${sourcePath}`,
+      `wget ${zipUrl} -O ${sourceZip}`
+    ).catch(function(_) {
+      throw new GitServerError('Failed to get the specified ZIP file.', 400);
+    });
+
+    let unzippedSize = (await execp(`unzip -Zt ${sourceZip} | cut -d ' ' -f 3`))
+      .stdout;
+
+    if (parseInt(unzippedSize, 10) / 1024 > maxSize) {
+      throw new GitServerError(
+        `Extracted size too large.`,
+        400
+      );
+    }
+
+    await chain(
+      `unzip -qq ${sourceZip} -d ${sourcePath}`
+    );
+  } finally {
+    // Ensure that source is cleaned up in case of error.
+    await execp(`rm -f ${sourceZip}`);
+  }
+}
+
+async function hrConfigToJson(sourcePath) {
+  let hrConfig = yaml.safeLoad(await readFile(
+    path.join(sourcePath, 'hackerrank.yml')
+  ).catch(function(_) {
+    throw new GitServerError('Unable to read the hackerrank.yml', 400);
+  }));
+
+  await writeFile(
+    path.join(sourcePath, 'hackerrank.json'),
+    JSON.stringify(hrConfig),
+    'utf8'
+  );
+}
+
+
+function repoHistory(repoPath) {
+  return Git.Repository.open(repoPath)
+    .then(function(repo) {
+      return repo.getHeadCommit();
+    })
+    .then(function(commit) {
+      return commit.history();
+    })
+    .then(function(history) {
+      return new Promise(function(resolve, reject) {
+        history.on('end', function(commits) {
+          resolve(commits.map(function(commit) {
+            return {
+              'id': commit.id().toString(),
+              'date': commit.date(),
+              'message': commit.message().trim(),
+              'author': commit.author().toString(),
+              'commiter': commit.committer().toString(),
+              'body': commit.body(),
+            };
+          }));
+        });
+        history.on('error', reject);
+
+        history.start();
+      });
+    });
+}
+
+async function gitDiff(repoPath) {
+  let result = await execp(
+    `cd ${repoPath} && \
+     git diff $(git rev-list --max-parents=0 --first-parent HEAD) HEAD`,
+    {maxBuffer: 1024 * 1000}
+  );
+  return result.stdout;
+}
+
+function zipRepo(repoPath) {
+  return spawn('git', ['archive', '--format=zip', 'HEAD'], {
+    cwd: repoPath,
+  });
+}
+
+function verifyUser(req, username, password) {
+  const user = auth(req);
+
+  return user &&
+    user.name === username &&
+    user.pass === password;
+}
+
+function repoManagerKey(repoId, config) {
+  return crypto
+    .createHmac('sha1', config.repoManagerSecret)
+    .update(repoId)
+    .digest('hex');
+}
+
+function isAdmin(req, config, repoId) {
+  if (repoId && verifyUser(req, 'manager', repoManagerKey(repoId, config))) {
+    return true;
+  }
+
+  return verifyUser(req, 'admin', config.adminKey);
+}
+
+function isFsHealthy(gitRoot) {
+  try {
+    touch(path.join(gitRoot, '.healthy'));
+    return true;
+  } catch (e) {
+    logger.error({
+      key: 'fs-health-error',
+      code: e.code,
+      error: e.toString(),
+    });
+    return false;
+  }
+}
+
+function isMemAvailable(memLimit) {
+  const rssInMb = process.memoryUsage().rss / 1048576;
+  return rssInMb < memLimit;
+}
+
+module.exports = {
+  GitServerError,
+  chain,
+  readFile,
+  writeFile,
+  isActive,
+  isRepo,
+  repoSize,
+  unzipUrl,
+  hrConfigToJson,
+  repoManagerKey,
+  isAdmin,
+  repoPath,
+  repoURL,
+  repoHistory,
+  isFsHealthy,
+  isMemAvailable,
+  gitDiff,
+  zipRepo,
+};

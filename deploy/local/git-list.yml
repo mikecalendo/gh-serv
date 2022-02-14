@@ -1,0 +1,27 @@
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: gitlist
+spec:
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: gitlist
+    spec:
+      securityContext:
+        fsGroup: 2000
+      containers:
+        - name: gitlist
+          image: gcr.io/git-server-dev/gitlist:latest
+          imagePullPolicy: Always
+          securityContext:
+            runAsUser: 0
+          volumeMounts:
+              - name: repositories
+                mountPath: /repos
+                readOnly: true
+      volumes:
+        - name: repositories
+          persistentVolumeClaim:
+            claimName: git-server-storage

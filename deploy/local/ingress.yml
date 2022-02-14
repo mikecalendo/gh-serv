@@ -1,0 +1,22 @@
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: git-server
+  labels:
+    app: git-server
+spec:
+  rules:
+  - http:
+      paths:
+      - path: /*
+        backend:
+          serviceName: git-server
+          servicePort: 8000
+      - path: /browse/*
+        backend:
+          serviceName: gitlist
+          servicePort: 80
+      - path: /browse
+        backend:
+          serviceName: gitlist
+          servicePort: 80
